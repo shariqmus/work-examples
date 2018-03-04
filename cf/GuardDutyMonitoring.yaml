@@ -1,0 +1,134 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description" : "AWS CloudFormation template to create SNS topics for GuardDuty notifications, and custom lambda function to route findings to different SNS topics based on severity.",
+    "Parameters": {
+        "LowSevSNSTopicName": {
+            "Type": "String",
+            "Default":"GuardDutyLowSev",
+            "Description": "Name for low-severity findings (consider checking these at a regular interval within GuardDuty console) "
+          },
+          "MedSevSNSTopicName": {
+            "Type": "String",
+            "Default":"GuardDutyMedSev",
+            "Description": "Name for medium-severity findings (consider email subscription to ticketing system.)"
+          },
+          "HighSevSNSTopicName": {
+            "Type": "String",
+            "Default":"GuardDutyHighSev",
+            "Description": "Name for high-severity findings (consider SNS notifications to key engineers and SDMs.)"
+          },
+        "Customer": {
+            "Type": "String",
+            "Description": "Name of Environment"
+          },
+          "BucketLocation": {
+            "Type": "String",
+            "Description": "Name of Environment"
+          },
+          "LambdaFilename": {
+            "Type": "String",
+            "Description": "Filename for Lambda function"
+          }
+    },
+    "Mappings" : {},
+  
+    "Resources" : {
+      "GuardDutyHighSevTopic" : {
+        "Type" : "AWS::SNS::Topic",
+        "Properties" : {
+          "DisplayName" : "Notifications for High-severity GuardDuty Findings",
+          "TopicName" :  {"Ref": "HighSevSNSTopicName"}
+        }
+      },
+      "GuardDutyMedSevTopic" : {
+        "Type" : "AWS::SNS::Topic",
+        "Properties" : {
+          "DisplayName" : "Notifications for Medium-severity GuardDuty Findings",
+          "TopicName" : {"Ref": "MedSevSNSTopicName"}
+        }
+      },
+      "GuardDutyLowSevTopic" : {
+        "Type" : "AWS::SNS::Topic",
+        "Properties" : {
+          "DisplayName" : "Notifications for Low-severity GuardDuty Findings",
+          "TopicName" : {"Ref": "LowSevSNSTopicName"}
+        }
+      },
+      "RouteGuardDutyLambdaRole" : {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                },
+                "Action": "sts:AssumeRole"
+              }
+            ]
+          },
+          "ManagedPolicyArns": ["arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole", "arn:aws:iam::aws:policy/AmazonSNSFullAccess" ],
+          "RoleName": "RouteGDFindingsLambdaRole"
+        }
+      },
+      "RouteGuardDutyLambda": {
+        "Type": "AWS::Lambda::Function",
+        "DependsOn": [
+            "RouteGuardDutyLambdaRole",
+            "GuardDutyLowSevTopic",
+            "GuardDutyMedSevTopic",
+            "GuardDutyHighSevTopic"
+        ],
+        "Properties": {
+            "Code": {
+                "S3Bucket": {"Ref": "BucketLocation"},
+                "S3Key": {"Ref": "LambdaFilename"}
+            },
+            "Role": {
+                "Fn::GetAtt": ["RouteGuardDutyLambdaRole", "Arn"]
+            },
+            "Timeout": 60,
+            "Handler": "index.handler",
+            "Runtime": "nodejs6.10",
+            "MemorySize": 128,
+            "Environment" : {
+                "Variables" : {
+                    "LowSevSNSTopic" : {"Ref": "GuardDutyLowSevTopic"},
+                    "MedSevSNSTopic" :  {"Ref": "GuardDutyMedSevTopic"},
+                    "HighSevSNSTopic" : {"Ref": "GuardDutyHighSevTopic"},
+                    "Customer" : {"Ref": "Customer"}
+                }
+            }
+        }
+    },
+    "GuardDutyEventRule": {
+        "Type": "AWS::Events::Rule",
+        "Properties": {
+          "Description": "EventRule",
+          "EventPattern": {
+            "source": [
+             "aws.guardduty"
+            ]
+          },
+          "State": "ENABLED",
+          "Targets": [{
+            "Arn": { "Fn::GetAtt": ["RouteGuardDutyLambda", "Arn"] },
+            "Id": "TargetFunctionV1"
+          }]
+        }
+      },
+    "PermissionForEventsToInvokeLambda": {
+      "Type": "AWS::Lambda::Permission",
+      "DependsOn": "RouteGuardDutyLambda",
+      "Properties": {
+        "FunctionName": { "Ref": "RouteGuardDutyLambda" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "events.amazonaws.com",
+        "SourceArn": { "Fn::GetAtt": ["GuardDutyEventRule", "Arn"] }
+      }
+    }
+  }
+}
+  

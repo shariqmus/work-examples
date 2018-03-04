@@ -1,0 +1,485 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SSM-based Multi-OS Patching Template. Ensure Instances have Internet Connectivity to SSM Service and EC2Role permits SSM
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Environment Settings
+      Parameters:
+      - EnvironmentParameter
+    - Label:
+        default: Patch Group Settings
+      Parameters:
+      - AZAIdentifier
+      - AZBIdentifier
+      - AZCIdentifier
+    - Label:
+        default: When to Check for Patches..
+      Parameters:
+      - PatchScanCron
+    - Label:
+        default: When to Install Patches..
+      Parameters:
+      - AZAPatchingCron
+      - AZBPatchingCron
+      - AZCPatchingCron
+    - Label:
+        default: Patching Settings
+      Parameters:
+      - OperatingSystem
+      - Classification
+      - ApproveAfterDays
+    - Label:
+        default: Logging Settings
+      Parameters:
+      - PatchingLoggingLocation
+      - PatchingLoggingPrefix
+Parameters:
+  EnvironmentParameter:
+    Type: String
+    Default: SIT10
+    AllowedValues:
+    - SIT2
+    - SIT3
+    - SIT4
+    - SIT5
+    - SIT6
+    - SIT7
+    - SIT8
+    - SIT9
+    - SIT10
+    - SIT11
+    - SIT12
+    - MGT
+    - STG
+    - PROD
+    Description: Environment
+  AZAPatchingCron:
+    Type: String
+    Default: cron(0 0 0 1 1 ? 1970)
+    Description: Cron Expression for AZ A Patching Schedule || cron(0 0 0 1 1 ? 1970)
+      for never.
+  AZBPatchingCron:
+    Type: String
+    Default: cron(0 0 0 1 1 ? 1970)
+    Description: Cron Expression for AZ B Patching Schedule
+  AZCPatchingCron:
+    Type: String
+    Default: cron(0 0 0 1 1 ? 1970)
+    Description: Cron Expression for AZ C Patching Schedule
+  PatchScanCron:
+    Type: String
+    Default: cron(0 10 * * ? *)
+    Description: Frequency for Patch compliance scans (cron format e.g. cron(0 10
+      * * ? *) )
+  AZAIdentifier:
+    Type: String
+    Default: ENV-ap-southeast-2a
+    Description: Patch Group tag for identifing AZ-A Instances
+  AZBIdentifier:
+    Type: String
+    Default: ENV-ap-southeast-2b
+    Description: Patch Group tag for identifing AZ-B Instances
+  AZCIdentifier:
+    Type: String
+    Default: ENV-ap-southeast-2c
+    Description: Patch Group tag for identifing AZ-C Instances
+  ApproveAfterDays:
+    Type: String
+    Default: '0'
+    Description: Number of Days before Approving Update
+  PatchingLoggingLocation:
+    Type: String
+    Default: vrssmpatchlogs
+    Description: S3 Bucket to Log to
+  PatchingLoggingPrefix:
+    Type: String
+    Default: sit10
+    Description: Folder in S3 to log Patch runs into
+  UseAWSApplyPatchBaseline:
+    Type: String
+    Default: 'true'
+    Description: Use the older AWS-ApplyPatchBaseline Document? (Set to true for Windows
+      Instances with old SSM agent)
+    AllowedValues:
+    - 'true'
+    - 'false'
+  OperatingSystem:
+    Type: String
+    Default: WINDOWS
+    Description: Operating System for Patching
+    AllowedValues:
+    - AMAZON_LINUX
+    - REDHAT_ENTERPRISE_LINUX
+    - SUSE
+    - UBUNTU
+    - WINDOWS
+  Classification:
+    Type: CommaDelimitedList
+    Description: 'Comma-separate Patches: (Windows) SecurityUpdates,CriticalUpdates,Updates,UpdateRollups
+      | (Amazon Linux/RHEL): Security, Bugfix, Enhancement, Recommended, Newpackage
+      | (SUSE) Security, Recommended, Optional, Feature, Document, Yast | (Ubuntu)
+      All,libs,libdevel,python,doc,debug,translations,devel,admin,oldlibs,text,utils,net,web,gnome,perl,cli-mono,universe/net,x11,universe/utils,universe/python'
+Mappings:
+  SSMPatchDocumentName:
+    'true':
+      Document: AWS-ApplyPatchBaseline
+    'false':
+      Document: AWS-RunPatchBaseline
+Conditions:
+  IsUbuntu:
+    Fn::Equals:
+    - Ref: OperatingSystem
+    - UBUNTU
+Resources:
+  PatchBaseline:
+    Type: AWS::SSM::PatchBaseline
+    Properties:
+      Name:
+        Fn::Join:
+        - "-"
+        - - Ref: EnvironmentParameter
+          - Ref: OperatingSystem
+          - Baseline
+      OperatingSystem:
+        Ref: OperatingSystem
+      ApprovedPatches: []
+      Description:
+        Fn::Join:
+        - "-"
+        - - Ref: EnvironmentParameter
+          - Patching with Critical and Security on day of release
+      ApprovedPatchesComplianceLevel: HIGH
+      PatchGroups:
+      - Ref: AZAIdentifier
+      - Ref: AZBIdentifier
+      - Ref: AZCIdentifier
+      ApprovalRules:
+        PatchRules:
+        - ApproveAfterDays:
+            Ref: ApproveAfterDays
+          PatchFilterGroup:
+            PatchFilters:
+              Fn::If:
+              - IsUbuntu
+              - - Key: SECTION
+                  Values:
+                  - All
+              - - Key: CLASSIFICATION
+                  Values:
+                    Ref: Classification
+  SSMAllAZScanMaintenanceWindow:
+    Type: AWS::SSM::MaintenanceWindow
+    Properties:
+      Description: Scanning for Patches in all AZs
+      AllowUnassociatedTargets: 'True'
+      Cutoff: '0'
+      Schedule:
+        Ref: PatchScanCron
+      Duration: '3'
+      Name:
+        Fn::Join:
+        - "-"
+        - - Ref: EnvironmentParameter
+          - Ref: OperatingSystem
+          - PatchScan-All-AZs
+  SSMAZAMaintenanceWindow:
+    Type: AWS::SSM::MaintenanceWindow
+    Properties:
+      Description: Patching for AZA at 2PM UTC
+      AllowUnassociatedTargets: 'True'
+      Cutoff: '0'
+      Schedule:
+        Ref: AZAPatchingCron
+      Duration: '3'
+      Name:
+        Fn::Join:
+        - "-"
+        - - Ref: EnvironmentParameter
+          - Ref: OperatingSystem
+          - PatchInstall-AZA
+  SSMAZBMaintenanceWindow:
+    Type: AWS::SSM::MaintenanceWindow
+    Properties:
+      Description: Patching for AZB at 3PM UTC
+      AllowUnassociatedTargets: 'True'
+      Cutoff: '0'
+      Schedule:
+        Ref: AZBPatchingCron
+      Duration: '3'
+      Name:
+        Fn::Join:
+        - "-"
+        - - Ref: EnvironmentParameter
+          - Ref: OperatingSystem
+          - PatchInstall-AZB
+  SSMAZCMaintenanceWindow:
+    Type: AWS::SSM::MaintenanceWindow
+    Properties:
+      Description: Patching for AZC at 4PM UTC
+      AllowUnassociatedTargets: 'True'
+      Cutoff: '0'
+      Schedule:
+        Ref: AZCPatchingCron
+      Duration: '3'
+      Name:
+        Fn::Join:
+        - "-"
+        - - Ref: EnvironmentParameter
+          - Ref: OperatingSystem
+          - PatchInstall-AZC
+  TargetsAZA:
+    Type: AWS::SSM::MaintenanceWindowTarget
+    Properties:
+      Description: Prod AZ-A Targets
+      WindowId:
+        Ref: SSMAZAMaintenanceWindow
+      ResourceType: INSTANCE
+      Targets:
+      - Values:
+        - Ref: AZAIdentifier
+        Key: tag:Patch Group
+      Name: TargetsAZA
+  TargetsAZB:
+    Type: AWS::SSM::MaintenanceWindowTarget
+    Properties:
+      Description: Prod AZ-B Targets
+      WindowId:
+        Ref: SSMAZBMaintenanceWindow
+      ResourceType: INSTANCE
+      Targets:
+      - Values:
+        - Ref: AZBIdentifier
+        Key: tag:Patch Group
+      Name: TargetsAZB
+  TargetsAZC:
+    Type: AWS::SSM::MaintenanceWindowTarget
+    Properties:
+      Description: Prod AZ-C Targets
+      WindowId:
+        Ref: SSMAZCMaintenanceWindow
+      ResourceType: INSTANCE
+      Targets:
+      - Values:
+        - Ref: AZCIdentifier
+        Key: tag:Patch Group
+      Name: TargetsAZC
+  TargetsAllAZs:
+    Type: AWS::SSM::MaintenanceWindowTarget
+    Properties:
+      Description: All Targers
+      WindowId:
+        Ref: SSMAllAZScanMaintenanceWindow
+      ResourceType: INSTANCE
+      Targets:
+      - Values:
+        - Ref: AZCIdentifier
+        - Ref: AZBIdentifier
+        - Ref: AZAIdentifier
+        Key: tag:Patch Group
+      Name: TargetsAllAZs
+  SSMPatchingScan:
+    Type: AWS::SSM::MaintenanceWindowTask
+    Properties:
+      MaxErrors: '2'
+      Description: Scan for Updates
+      ServiceRoleArn:
+        Fn::GetAtt:
+        - AutomationServiceRole
+        - Arn
+      Priority: '1'
+      MaxConcurrency: '8'
+      Name: ScanForMissing
+      Targets:
+      - Values:
+        - Ref: TargetsAllAZs
+        Key: WindowTargetIds
+      TaskArn:
+        Fn::FindInMap:
+        - SSMPatchDocumentName
+        - Ref: UseAWSApplyPatchBaseline
+        - Document
+      WindowId:
+        Ref: SSMAllAZScanMaintenanceWindow
+      TaskType: RUN_COMMAND
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          OutputS3BucketName:
+            Ref: PatchingLoggingLocation
+          OutputS3KeyPrefix:
+            Ref: PatchingLoggingPrefix
+      TaskParameters:
+        Operation:
+          Values:
+          - Scan
+  SSMPatchingTaskAZA:
+    Type: AWS::SSM::MaintenanceWindowTask
+    Properties:
+      MaxErrors: '1'
+      Description: Apply Critical Security Updates
+      ServiceRoleArn:
+        Fn::GetAtt:
+        - AutomationServiceRole
+        - Arn
+      Priority: '1'
+      MaxConcurrency: '4'
+      Name: InstallMissing
+      Targets:
+      - Values:
+        - Ref: TargetsAZA
+        Key: WindowTargetIds
+      TaskArn:
+        Fn::FindInMap:
+        - SSMPatchDocumentName
+        - Ref: UseAWSApplyPatchBaseline
+        - Document
+      WindowId:
+        Ref: SSMAZAMaintenanceWindow
+      TaskType: RUN_COMMAND
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          OutputS3BucketName:
+            Ref: PatchingLoggingLocation
+          OutputS3KeyPrefix:
+            Ref: PatchingLoggingPrefix
+      TaskParameters:
+        Operation:
+          Values:
+          - Install
+  SSMPatchingTaskAZB:
+    Type: AWS::SSM::MaintenanceWindowTask
+    Properties:
+      MaxErrors: '1'
+      Description: Apply Updates
+      ServiceRoleArn:
+        Fn::GetAtt:
+        - AutomationServiceRole
+        - Arn
+      Priority: '1'
+      MaxConcurrency: '4'
+      Name: InstallMissing
+      Targets:
+      - Values:
+        - Ref: TargetsAZB
+        Key: WindowTargetIds
+      TaskArn:
+        Fn::FindInMap:
+        - SSMPatchDocumentName
+        - Ref: UseAWSApplyPatchBaseline
+        - Document
+      WindowId:
+        Ref: SSMAZBMaintenanceWindow
+      TaskType: RUN_COMMAND
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          OutputS3BucketName:
+            Ref: PatchingLoggingLocation
+          OutputS3KeyPrefix:
+            Ref: PatchingLoggingPrefix
+      TaskParameters:
+        Operation:
+          Values:
+          - Install
+  SSMPatchingTaskAZC:
+    Type: AWS::SSM::MaintenanceWindowTask
+    Properties:
+      MaxErrors: '1'
+      Description: Apply Updates
+      ServiceRoleArn:
+        Fn::GetAtt:
+        - AutomationServiceRole
+        - Arn
+      Priority: '1'
+      MaxConcurrency: '4'
+      Name: InstallMissing
+      Targets:
+      - Values:
+        - Ref: TargetsAZC
+        Key: WindowTargetIds
+      TaskArn:
+        Fn::FindInMap:
+        - SSMPatchDocumentName
+        - Ref: UseAWSApplyPatchBaseline
+        - Document
+      WindowId:
+        Ref: SSMAZCMaintenanceWindow
+      TaskType: RUN_COMMAND
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          OutputS3BucketName:
+            Ref: PatchingLoggingLocation
+          OutputS3KeyPrefix:
+            Ref: PatchingLoggingPrefix
+      TaskParameters:
+        Operation:
+          Values:
+          - Install
+  ManagedInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ssm.amazonaws.com
+            - ec2.amazonaws.com
+          Action: sts:AssumeRole
+        - Effect: Allow
+          Principal:
+            Service:
+            - ssm.amazonaws.com
+            - ec2.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      - arn:aws:iam::aws:policy/AmazonSNSFullAccess
+      Path: "/"
+  ManagedInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: ManagedInstanceRole
+      InstanceProfileName:
+        Fn::Join:
+        - "-"
+        - - Ref: EnvironmentParameter
+          - Ref: OperatingSystem
+          - ManagedInstanceProfile
+  AutomationServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ssm.amazonaws.com
+            - ec2.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      - arn:aws:iam::aws:policy/AmazonSNSFullAccess
+      Path: "/"
+      RoleName:
+        Fn::Join:
+        - "-"
+        - - Ref: EnvironmentParameter
+          - Ref: OperatingSystem
+          - AutomationServiceRole
+      Policies:
+      - PolicyName: passrole
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - iam:PassRole
+            Resource:
+            - Fn::GetAtt:
+              - ManagedInstanceRole
+              - Arn

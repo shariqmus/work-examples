@@ -1,0 +1,3132 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Pre-Prod Environment
+Parameters:
+  RHELVER:
+    Type: String
+    Description: RHEL Version
+    Default: RHEL7.4
+  Environment:
+    Type: String
+    Description: Specific Environment
+    Default: PreProd
+  RHELAMI:
+    Type: String
+    Default: ami-8741abe5
+    Description: RHEL AMI for use throughout the environment
+  LogsRetentionInDays:
+    Description: 'Specifies the number of days you want to retain log events.'
+    Type: Number
+    Default: 90
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
+  TrafficType:
+    Description: 'The type of traffic to log.'
+    Type: String
+    Default: REJECT
+    AllowedValues:
+    - ACCEPT
+    - REJECT
+    - ALL
+Resources:
+  FlowRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - 'vpc-flow-logs.amazonaws.com'
+          Action: 'sts:AssumeRole'
+      Policies:
+      - PolicyName: 'flowlogs-policy'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - 'logs:CreateLogGroup'
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+            - 'logs:DescribeLogGroups'
+            - 'logs:DescribeLogStreams'
+            Resource: '*'
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub "${Environment}-LogGroup"
+      RetentionInDays: !Ref LogsRetentionInDays
+  FlowLog:
+    Type: 'AWS::EC2::FlowLog'
+    Properties:
+      DeliverLogsPermissionArn: !GetAtt 'FlowRole.Arn'
+      LogGroupName: !Ref LogGroup
+      ResourceId: !Ref vpc
+      ResourceType: 'VPC'
+      TrafficType: !Ref TrafficType
+  vpc:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.76.192.0/19
+      InstanceTenancy: default
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'false'
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}VPC"
+  subnetWebA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.76.192.0/24
+      AvailabilityZone: ap-southeast-2a
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}Web-A"
+  subnetWebB:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.76.193.0/24
+      AvailabilityZone: ap-southeast-2b
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}Web-B"
+  subnetAppA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.76.202.0/24
+      AvailabilityZone: ap-southeast-2a
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}App-A"
+  subnetAppB:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.76.203.0/24
+      AvailabilityZone: ap-southeast-2b
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}App-B"
+  subnetDataA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.76.212.0/24
+      AvailabilityZone: ap-southeast-2a
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}Data-A"
+  subnetDataB:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.76.213.0/24
+      AvailabilityZone: ap-southeast-2b
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}Data-B"
+  igwEnv:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: VPC-IGW
+  eipEnv:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+  eipEnv2:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+  natGatewayAZa:
+    DependsOn: gwpp
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt
+        - eipEnv
+        - AllocationId
+      SubnetId: !Ref subnetWebA
+  natGatewayAZb:
+    DependsOn: gwpp
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt
+        - eipEnv2
+        - AllocationId
+      SubnetId: !Ref subnetWebB
+  aclEnv:
+    Type: 'AWS::EC2::NetworkAcl'
+    Properties:
+      VpcId: !Ref vpc
+  rtbEnvWebAza:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: VPCWebRTAza
+  rtbEnvMainRTAza:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: VPCMainRTAza
+  rtbEnvWebAzb:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: VPCWebRTAzb
+  rtbEnvMainRTAzb:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: VPCMainRTAzb
+  iwaxprpwamap01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpwamap01
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: WAM
+        - Key: Name
+          Value: iwaxprpwamap01
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpwamap01sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpwamap01sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.10
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpwamap02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpwamap02
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: WAM
+        - Key: Name
+          Value: iwaxprpwamap02
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpwamap02sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpwamap02sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.20
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpwamap03:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpwamap03
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: WAM
+        - Key: Name
+          Value: iwaxprpwamap03
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpwamap03sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpwamap03sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.20
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpwamap04:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpwamap04
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: WAM
+        - Key: Name
+          Value: iwaxprpwamap04
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpwamap04sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpwamap04sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.10
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpwambt01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpwambt01
+      Tags:
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Name
+          Value: iwaxprpwambt01
+        - Key: Project
+          Value: Axle
+        - Key: Application
+          Value: WAM
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpwambt01sdf00
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpwambt01sdg00
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpwambt01sdh00
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.55
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpwambt02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpwambt02
+      Tags:
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Name
+          Value: iwaxprpwambt02
+        - Key: Project
+          Value: Axle
+        - Key: Application
+          Value: WAM
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpwambt02sdf00
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpwambt02sdg00
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpwambt02sdh00
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.55
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpwamdb01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpwamdb01
+      Tags:
+        - Key: Application
+          Value: WAM
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpwamdb01
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpwamdb01sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpwamdb01sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpwamdb01sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpwamdb01sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.152.31
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpwamdb02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpwamdb02
+      Tags:
+        - Key: Application
+          Value: WAM
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpwamdb02
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpwamdb02sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpwamdb02sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpwamdb02sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpwamdb02sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.153.31
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpmwmap01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpmwmap01
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: mwm
+        - Key: Name
+          Value: iwaxprpmwmap01
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpmwmap01sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpmwmap01sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.40
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpmwmap02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpmwmap02
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: mwm
+        - Key: Name
+          Value: iwaxprpmwmap02
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpmwmap02sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpmwmap02sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.45
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpmwmap03:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpmwmap03
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: mwm
+        - Key: Name
+          Value: iwaxprpmwmap03
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpmwmap03sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpmwmap03sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.40
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpmwmap04:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpmwmap04
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: mwm
+        - Key: Name
+          Value: iwaxprpmwmap04
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpmwmap04sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpmwmap04sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.45
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpmwmbt01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpmwmbt01
+      Tags:
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Name
+          Value: iwaxprpmwmbt01
+        - Key: Project
+          Value: Axle
+        - Key: Application
+          Value: mwm
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpmwmbt01sdf00
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpmwmbt01sdg00
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpmwmbt01sdh00
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.65
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpmwmbt02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpmwmbt02
+      Tags:
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Name
+          Value: iwaxprpmwmbt02
+        - Key: Project
+          Value: Axle
+        - Key: Application
+          Value: mwm
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpmwmbt02sdf00
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpmwmbt02sdg00
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpmwmbt02sdh00
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.65
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpmwmdb01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpmwmdb01
+      Tags:
+        - Key: Application
+          Value: mwm
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpmwmdb01
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpmwmdb01sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpmwmdb01sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpmwmdb01sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpmwmdb01sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.152.41
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpmwmdb02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpmwmdb02
+      Tags:
+        - Key: Application
+          Value: mwm
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpmwmdb02
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpmwmdb02sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpmwmdb02sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpmwmdb02sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpmwmdb02sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.153.44
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpnmsap01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpnmsap01
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: nms
+        - Key: Name
+          Value: iwaxprpnmsap01
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpnmsap01sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpnmsap01sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.60
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpnmsap02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpnmsap02
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: nms
+        - Key: Name
+          Value: iwaxprpnmsap02
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpnmsap02sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpnmsap02sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.70
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpnmsap03:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpnmsap03
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: nms
+        - Key: Name
+          Value: iwaxprpnmsap03
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpnmsap03sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpnmsap03sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.60
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpnmsap04:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpnmsap04
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: nms
+        - Key: Name
+          Value: iwaxprpnmsap04
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpnmsap04sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpnmsap04sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.70
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpnmsdb01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpnmsdb01
+      Tags:
+        - Key: Application
+          Value: nms
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpnmsdb01
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpnmsdb01sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpnmsdb01sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpnmsdb01sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpnmsdb01sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.152.42
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpnmsdb02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpnmsdb02
+      Tags:
+        - Key: Application
+          Value: nms
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpnmsdb02
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpnmsdb02sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpnmsdb02sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpnmsdb02sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpnmsdb02sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.153.42
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpouaap01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpouaap01
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: oua
+        - Key: Name
+          Value: iwaxprpouaap01
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpouaap01sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpouaap01sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.80
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpouaap02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpouaap02
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: oua
+        - Key: Name
+          Value: iwaxprpouaap02
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpouaap02sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpouaap02sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.90
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpouaap03:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpouaap03
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: oua
+        - Key: Name
+          Value: iwaxprpouaap03
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpouaap03sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpouaap03sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.80
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpouaap04:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpouaap04
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: oua
+        - Key: Name
+          Value: iwaxprpouaap04
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpouaap04sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpouaap04sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.90
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpouadb01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpouadb01
+      Tags:
+        - Key: Application
+          Value: oua
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpouadb01
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpouadb01sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpouadb01sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpouadb01sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpouadb01sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.152.43
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpouadb02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpouadb02
+      Tags:
+        - Key: Application
+          Value: oua
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpouadb02
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpouadb02sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpouadb02sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpouadb02sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpouadb02sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.153.43
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpsoaap01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpsoaap01
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: soa
+        - Key: Name
+          Value: iwaxprpsoaap01
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpsoaap01sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpsoaap01sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.100
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpsoaap02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpsoaap02
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: soa
+        - Key: Name
+          Value: iwaxprpsoaap02
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpsoaap02sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpsoaap02sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.142.110
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpsoaap03:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpsoaap03
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: soa
+        - Key: Name
+          Value: iwaxprpsoaap03
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpsoaap03sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpsoaap03sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.100
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpsoaap04:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpsoaap04
+      Monitoring: 'true'
+      Tags:
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Application
+          Value: soa
+        - Key: Name
+          Value: iwaxprpsoaap04
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Project
+          Value: Axle
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpsoaap04sdf00000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpsoaap04sdg00000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetAppB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.143.110
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpsoadb01:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2a
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpsoadb01
+      Tags:
+        - Key: Application
+          Value: soa
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpsoadb01
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpsoadb01sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpsoadb01sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpsoadb01sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpsoadb01sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataA
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.152.51
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  iwaxprpsoadb02:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      AvailabilityZone: ap-southeast-2b
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      IamInstanceProfile: EC2-RHEL-General
+      ImageId:
+        Ref: RHELAMI
+      InstanceType: t2.micro
+      KeyName: IW-Oralce-RHEL-KeyPair
+      Monitoring: 'true'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - '#!/bin/bash'
+            - hostnamectl set-hostname iwaxprpsoadb02
+      Tags:
+        - Key: Application
+          Value: soa
+        - Key: Project
+          Value: Axle
+        - Key: OS
+          Value: !Sub "${RHELVER}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: Name
+          Value: iwaxprpsoadb02
+        - Key: cpm backup
+          Value: RHELPolicy
+        - Key: monitor_site24x7
+          Value: 'false'
+      Volumes:
+        - Device: /dev/sdf
+          VolumeId: !Ref volumevol0iwaxprpsoadb02sdf000
+        - Device: /dev/sdg
+          VolumeId: !Ref volumevol0iwaxprpsoadb02sdg000
+        - Device: /dev/sdh
+          VolumeId: !Ref volumevol0iwaxprpsoadb02sdh000
+        - Device: /dev/sdi
+          VolumeId: !Ref volumevol0iwaxprpsoadb02sdi000
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref subnetDataB
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.76.153.51
+              Primary: 'true'
+          GroupSet:
+            - !Ref sgVPCOracleAPPtoDB
+            - !Ref sgVPCInternetNATGateway
+            - !Ref sgOracleAppfromManagementAppZone
+            - !Ref sgVPCFromSOAAppTier
+  volumevol0iwaxprpwamdb01sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwamdb01-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpwamdb01sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwamdb01-oradata
+  volumevol0iwaxprpwamdb01sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwamdb01-arch
+  volumevol0iwaxprpwamdb01sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwamdb01-swap
+  volumevol0iwaxprpwamdb02sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwamdb02-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpwamdb02sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwamdb02-oradata
+  volumevol0iwaxprpwamdb02sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwamdb02-arch
+  volumevol0iwaxprpwamdb02sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwamdb02-swap
+  volumevol0iwaxprpwamap01sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpwamap01-u01-100Gb-f
+  volumevol0iwaxprpwamap01sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpwamap01-swap-20Gb-g
+  volumevol0iwaxprpwamap02sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpwamap02-u01-100Gb-f
+  volumevol0iwaxprpwamap02sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpwamap02-swap-20Gb-g
+  volumevol0iwaxprpwamap03sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpwamap03-u01-100Gb-f
+  volumevol0iwaxprpwamap03sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpwamap03-swap-20Gb-g
+  volumevol0iwaxprpwamap04sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpwamap04-u01-100Gb-f
+  volumevol0iwaxprpwamap04sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpwamap04-swap-20Gb-g
+  volumevol0iwaxprpwambt01sdf00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwambt01-u01-100Gb-/dev/sdf
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpwambt01sdg00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwambt01-log-100Gb-/dev/sdg
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpwambt01sdh00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwambt01-swap-20Gb-/dev/sdh
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpwambt02sdf00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwambt01-u01-100Gb-/dev/sdf
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpwambt02sdg00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwambt01-logs-100Gb-/dev/sdg
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpwambt02sdh00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpwambt01-swap-20Gb-/dev/sdh
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpmwmdb01sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmdb01-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpmwmdb01sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmdb01-oradata
+  volumevol0iwaxprpmwmdb01sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmdb01-arch
+  volumevol0iwaxprpmwmdb01sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmdb01-swap
+  volumevol0iwaxprpmwmdb02sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmdb02-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpmwmdb02sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmdb02-oradata
+  volumevol0iwaxprpmwmdb02sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmdb02-arch
+  volumevol0iwaxprpmwmdb02sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmdb02-swap
+  volumevol0iwaxprpmwmap01sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpmwmap01-u01-100Gb-f
+  volumevol0iwaxprpmwmap01sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpmwmap01-swap-20Gb-g
+  volumevol0iwaxprpmwmap02sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpmwmap02-u01-100Gb-f
+  volumevol0iwaxprpmwmap02sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpmwmap02-swap-20Gb-g
+  volumevol0iwaxprpmwmap03sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpmwmap03-u01-100Gb-f
+  volumevol0iwaxprpmwmap03sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpmwmap03-swap-20Gb-g
+  volumevol0iwaxprpmwmap04sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpmwmap04-u01-100Gb-f
+  volumevol0iwaxprpmwmap04sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpmwmap04-swap-20Gb-g
+  volumevol0iwaxprpmwmbt01sdf00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmbt01-u01-100Gb-/dev/sdf
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpmwmbt01sdg00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmbt01-log-100Gb-/dev/sdg
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpmwmbt01sdh00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmbt01-swap-20Gb-/dev/sdh
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpmwmbt02sdf00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmbt01-u01-100Gb-/dev/sdf
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpmwmbt02sdg00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmbt01-logs-100Gb-/dev/sdg
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpmwmbt02sdh00:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpmwmbt01-swap-20Gb-/dev/sdh
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpnmsdb01sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpnmsdb01-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpnmsdb01sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpnmsdb01-oradata
+  volumevol0iwaxprpnmsdb01sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpnmsdb01-arch
+  volumevol0iwaxprpnmsdb01sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpnmsdb01-swap
+  volumevol0iwaxprpnmsdb02sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpnmsdb02-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpnmsdb02sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpnmsdb02-oradata
+  volumevol0iwaxprpnmsdb02sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpnmsdb02-arch
+  volumevol0iwaxprpnmsdb02sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpnmsdb02-swap
+  volumevol0iwaxprpnmsap01sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpnmsap01-u01-100Gb-f
+  volumevol0iwaxprpnmsap01sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpnmsap01-swap-20Gb-g
+  volumevol0iwaxprpnmsap02sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpnmsap02-u01-100Gb-f
+  volumevol0iwaxprpnmsap02sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpnmsap02-swap-20Gb-g
+  volumevol0iwaxprpnmsap03sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpnmsap03-u01-100Gb-f
+  volumevol0iwaxprpnmsap03sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpnmsap03-swap-20Gb-g
+  volumevol0iwaxprpnmsap04sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpnmsap04-u01-100Gb-f
+  volumevol0iwaxprpnmsap04sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpnmsap04-swap-20Gb-g
+  volumevol0iwaxprpouadb01sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpouadb01-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpouadb01sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpouadb01-oradata
+  volumevol0iwaxprpouadb01sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpouadb01-arch
+  volumevol0iwaxprpouadb01sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpouadb01-swap
+  volumevol0iwaxprpouadb02sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpouadb02-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpouadb02sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpouadb02-oradata
+  volumevol0iwaxprpouadb02sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpouadb02-arch
+  volumevol0iwaxprpouadb02sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpouadb02-swap
+  volumevol0iwaxprpouaap01sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpouaap01-u01-100Gb-f
+  volumevol0iwaxprpouaap01sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpouaap01-swap-20Gb-g
+  volumevol0iwaxprpouaap02sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpouaap02-u01-100Gb-f
+  volumevol0iwaxprpouaap02sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpouaap02-swap-20Gb-g
+  volumevol0iwaxprpouaap03sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpouaap03-u01-100Gb-f
+  volumevol0iwaxprpouaap03sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpouaap03-swap-20Gb-g
+  volumevol0iwaxprpouaap04sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpouaap04-u01-100Gb-f
+  volumevol0iwaxprpouaap04sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpouaap04-swap-20Gb-g
+  volumevol0iwaxprpsoadb01sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpsoadb01-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpsoadb01sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpsoadb01-oradata
+#TODO Tagging
+  volumevol0iwaxprpsoadb01sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpsoadb01-arch
+#TODO Tagging
+  volumevol0iwaxprpsoadb01sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpsoadb01-swap
+#TODO Tagging
+  volumevol0iwaxprpsoadb02sdf000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpsoadb02-u01
+        - Key: Project
+          Value: Axle
+  volumevol0iwaxprpsoadb02sdg000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpsoadb02-oradata
+#TODO Tagging
+  volumevol0iwaxprpsoadb02sdh000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpsoadb02-arch
+#TODO Tagging
+  volumevol0iwaxprpsoadb02sdi000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: iwaxprpsoadb02-swap
+#TODO Tagging
+  volumevol0iwaxprpsoaap01sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpsoaap01-u01-100Gb-f
+  volumevol0iwaxprpsoaap01sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpsoaap01-swap-20Gb-g
+  volumevol0iwaxprpsoaap02sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpsoaap02-u01-100Gb-f
+  volumevol0iwaxprpsoaap02sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2a
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpsoaap02-swap-20Gb-g
+  volumevol0iwaxprpsoaap03sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpsoaap03-u01-100Gb-f
+  volumevol0iwaxprpsoaap03sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpsoaap03-swap-20Gb-g
+  volumevol0iwaxprpsoaap04sdf00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '100'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpsoaap04-u01-100Gb-f
+  volumevol0iwaxprpsoaap04sdg00000:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      AvailabilityZone: ap-southeast-2b
+      Size: '20'
+      VolumeType: gp2
+      Tags:
+        - Key: Project
+          Value: Axle
+        - Key: Name
+          Value: iwaxprpouaap04-swap-20Gb-g
+  VPCStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: >-
+        https://s3-ap-southeast-2.amazonaws.com/iw-cf-templates/IWPreProdEnv0.13_nested.yaml
+      Parameters:
+        vpc: !Ref vpc
+        sgOracleAppfromManagementAppZone: !Ref sgOracleAppfromManagementAppZone
+        sgVPCOracleAPPtoDB: !Ref sgVPCOracleAPPtoDB
+        sgVPCFromSOAAppTier: !Ref sgVPCFromSOAAppTier
+        sgVPCInternetNATGateway: !Ref sgVPCInternetNATGateway
+      TimeoutInMinutes: '5'
+  sgOracleAppfromManagementAppZone:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: OracleAppfromManagementAppZone
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: VPC-FromManagmentAppTier
+  sgVPCOracleAPPtoDB:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: VPC-OracleAPPtoDB
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: VPC-OracleAppToDB Traffic
+  sgVPCFromSOAAppTier:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: VPC-FromSOAAppTier
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: VPC-FromSOAAppTier
+  sgVPCInternetNATGateway:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: VPC-InternetNATGateway
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: VPC-InternetNATGateway
+  acl3:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: 'true'
+      Protocol: '-1'
+      RuleAction: allow
+      RuleNumber: '100'
+      NetworkAclId: !Ref aclEnv
+  acl4:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: '-1'
+      RuleAction: allow
+      RuleNumber: '100'
+      NetworkAclId: !Ref aclEnv
+  subnetacl7:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref aclEnv
+      SubnetId: !Ref subnetAppB
+  subnetacl8:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref aclEnv
+      SubnetId: !Ref subnetDataA
+  subnetacl9:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref aclEnv
+      SubnetId: !Ref subnetWebA
+  subnetacl10:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref aclEnv
+      SubnetId: !Ref subnetAppA
+  subnetacl11:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref aclEnv
+      SubnetId: !Ref subnetWebB
+  subnetacl12:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      NetworkAclId: !Ref aclEnv
+      SubnetId: !Ref subnetDataB
+  vpcendpointAza:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      RouteTableIds:
+        - !Ref rtbEnvMainRTAza
+        - !Ref rtbEnvWebAza
+      ServiceName: com.amazonaws.ap-southeast-2.s3
+      VpcId: !Ref vpc
+  vpcendpointAzb:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      RouteTableIds:
+        - !Ref rtbEnvMainRTAzb
+        - !Ref rtbEnvWebAzb
+      ServiceName: com.amazonaws.ap-southeast-2.s3
+      VpcId: !Ref vpc
+  gwpp:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref vpc
+      InternetGatewayId: !Ref igwEnv
+  vpcPeer:
+    DependsOn: gwpp
+    Type: 'AWS::EC2::VPCPeeringConnection'
+    Properties:
+      PeerVpcId: vpc-ad9e0fc9
+      VpcId: !Ref vpc
+  subnetroute8:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref rtbEnvWebAza
+      SubnetId: !Ref subnetWebA
+  subnetroute9:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref rtbEnvWebAzb
+      SubnetId: !Ref subnetWebB
+  subnetroute10:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref rtbEnvMainRTAzb
+      SubnetId: !Ref subnetDataB
+  subnetroute11:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref rtbEnvMainRTAza
+      SubnetId: !Ref subnetAppA
+  subnetroute13:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref rtbEnvMainRTAzb
+      SubnetId: !Ref subnetAppB
+  subnetroute14:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref rtbEnvMainRTAza
+      SubnetId: !Ref subnetDataA
+  route1igwAza:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref rtbEnvWebAza
+      GatewayId: !Ref igwEnv
+    DependsOn: gwpp
+  route1igwAzb:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref rtbEnvWebAzb
+      GatewayId: !Ref igwEnv
+    DependsOn: gwpp
+  route2peer1Aza:
+    DependsOn: vpcPeer
+    Type: 'AWS::EC2::Route'
+    Properties:
+      VpcPeeringConnectionId: !Ref vpcPeer
+      DestinationCidrBlock: 10.76.0.0/19
+      RouteTableId: !Ref rtbEnvMainRTAza
+  route2peer1Azb:
+    DependsOn: vpcPeer
+    Type: 'AWS::EC2::Route'
+    Properties:
+      VpcPeeringConnectionId: !Ref vpcPeer
+      DestinationCidrBlock: 10.76.0.0/19
+      RouteTableId: !Ref rtbEnvMainRTAzb
+  route4ngwAZa:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref rtbEnvMainRTAza
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref natGatewayAZa
+  route4ngwAZb:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref rtbEnvMainRTAzb
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref natGatewayAZb
+  route5peer2:
+    DependsOn: vpcPeer
+    Type: 'AWS::EC2::Route'
+    Properties:
+      VpcPeeringConnectionId: !Ref vpcPeer
+      DestinationCidrBlock: 10.76.128.0/19
+      RouteTableId: rtb-8af7acee
+  dchpassoc2:
+    Type: 'AWS::EC2::VPCDHCPOptionsAssociation'
+    Properties:
+      VpcId: !Ref vpc
+      DhcpOptionsId: dopt2eed5b4a

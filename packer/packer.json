@@ -1,0 +1,64 @@
+{
+    "variables": {
+        "aws_access_key": "",
+        "aws_secret_key": "",
+        "aws_region": "{{ env `AWS_DEFAULT_REGION` }}",
+        "ami_id": "{{ env `AMI_ID` }}",
+        "windows_admin_password": "",
+        "manifests_bucket_name": "{{ env `MANIFESTS_BUCKET_NAME` }}"
+    },
+    "builders": [{
+        "type": "amazon-ebs",
+        "access_key": "{{user `aws_access_key`}}",
+        "secret_key": "{{user `aws_secret_key`}}",
+        "region": "{{user `aws_region`}}",
+        "source_ami": "{{user `ami_id`}}",
+        "instance_type": "t2.medium",
+        "user_data_file":"./scripts/powershell/packer_userdata.ps1",
+        "communicator": "winrm",
+        "winrm_username": "winrmuser",
+        "winrm_password": "P@ssw0rd01",
+        "winrm_port":5985,
+        "winrm_timeout": "50m",
+        "ami_name": "CIS-WindowsServer-2012R2-base {{isotime | clean_ami_name}}",
+        "ami_users": ["012345678912"],
+        "launch_block_device_mappings": [{
+            "device_name": "/dev/sda1",
+            "volume_size": 30,
+            "volume_type": "gp2",
+            "delete_on_termination": true
+        }],
+        "tags": {
+            "OS_Version": "Windows",
+            "Name": "CIS-WindowsServer-2012R2-ContentDelivery",
+            "Timestamp": "{{timestamp}}",
+            "Repo_Branch": "{{user `branch`}}"
+        }
+    }],
+    "provisioners": [
+      {
+        "type": "powershell",
+        "inline": [ "cmd.exe /c NET USER Administrator {{ user `windows_admin_password`}}" ]
+      },
+      {
+        "type": "powershell",
+        "script": "./scripts/powershell/packer_ec2config.ps1",
+        "elevated_user": "Administrator",
+        "elevated_password": "{{ user `windows_admin_password`}}"
+      },
+      {
+        "type": "powershell",
+        "script": "./scripts/powershell/packer_reharden.ps1",
+        "elevated_user": "Administrator",
+        "elevated_password": "{{ user `windows_admin_password`}}"
+      }
+      ],
+
+      "post-processors": [
+        [{
+            "type": "manifest",
+            "output": "manifest.json",
+            "strip_path": true
+        }]
+    ]
+}
