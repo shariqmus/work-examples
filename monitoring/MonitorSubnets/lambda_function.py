@@ -1,7 +1,6 @@
 ###############################
 #
 # Monitor IP addresses free in subnet
-# Kloud Solutions
 # Creates custom metric for free IPs in Subnets
 # Set in Environment Variable
 #
